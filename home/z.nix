@@ -17,7 +17,8 @@ in
   # ── Cursor ───────────────────────────────────────────────────────────────
   # Without a theme installed Hyprland falls back to the bare X11 pointer.
   # This installs Bibata and wires up XCURSOR (x11), GTK, and hyprcursor at
-  # once. Size stays 24 to match the env lines in dotfiles/hypr/hyprland.conf.
+  # once. This is the SINGLE source of the cursor theme/size for the session:
+  # it exports XCURSOR_*/HYPRCURSOR_*, so hyprland.lua no longer sets them.
   home.pointerCursor = {
     package = pkgs.bibata-cursors;
     name = "Bibata-Modern-Ice";
