@@ -104,9 +104,17 @@
   #   above (NuPhy kbd + Razer dongle mouse — swap for the wired
   #   ...Basilisk_Ultimate_000000000000-event-mouse node if the mouse is
   #   used corded).
-  # * Error 43: only if it actually appears (unlikely on current NVIDIA
-  #   drivers) — vendor_id spoof + kvm hidden in the XML.
+  # * Error 43: did NOT appear (2026-07-03, current GeForce driver) — no
+  #   vendor_id spoof / kvm hidden needed. Add to the XML only if it shows up.
   # * Looking Glass host app inside Windows: install B7 to match the host
-  #   client/kvmfr (both B7 from nixpkgs).
-  # * HDMI dummy plug on the 3080, rated for 2560x1440@240 (see plan).
+  #   client/kvmfr (both B7 from nixpkgs). IVSHMEM driver needs a manual
+  #   install — the by-hand DISM deploy bypassed the autounattend injection.
+  # * Display head for the 3080 (LG needs an active output): DisplayPort to the
+  #   G7's 2nd input is preferred (real 1440p240 EDID + native-input fallback);
+  #   a dummy plug must be DP/HDMI 2.1 for 240 Hz; a VDD is a software stopgap.
+  #   See docs/win11-vm.md.
+  #
+  # NB: OS was installed via manual DISM apply, not the autounattend — the new
+  # 25H2 graphical Setup fails (0xD000A000) because WinPE lacks viostor. See
+  # docs/win11-vm.md for the recipe.
 }
