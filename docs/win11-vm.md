@@ -11,7 +11,12 @@ The running generation must include the latest `modules/vfio.nix`
 
 ```
 sudo nixos-rebuild switch --flake ~/nixos#nix
+sudo systemctl restart libvirtd   # only if no VM is running
 ```
+
+NixOS deliberately does **not** restart libvirtd on switch (it would kill
+running VMs), so qemu.conf changes (device ACL, namespaces) and hook
+updates from `modules/vfio.nix` are NOT live until libvirtd restarts.
 
 ## First boot
 
@@ -49,9 +54,14 @@ Input: the NuPhy kbd + Razer dongle mouse pass through via evdev —
    `HKLM\SYSTEM\CurrentControlSet\Enum\PCI\VEN_10DE&DEV_1AEF&...\<instance>\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties`
    and reboot the guest. **Re-check after every GeForce driver update** —
    the installer likes to flip it back.
-3. Install the Looking Glass **B7** host app (must match the host client/kvmfr,
+3. Install the Looking Glass **B7** host app (must match the host client,
    both B7 from nixpkgs). The IVSHMEM driver is already bound (staged from
    unattend.iso — the stable virtio-win ISO doesn't ship it).
+   The shared memory is a plain shm file (`/dev/shm/looking-glass`, the LG
+   client's default) — **not kvmfr**: on kernel 6.18 VFIO can't DMA-map
+   kvmfr device memory and qemu aborts the moment OVMF programs the ivshmem
+   BAR (hw_error in vfio_container_region_add, SIGABRT ~5 s into boot).
+   Retry kvmfr when the module catches up with the kernel.
 4. LG capture needs an active output on the 3080: nothing to capture until
    the **HDMI dummy plug** (2560x1440@240-capable) arrives. Spice remains the
    display until then.
