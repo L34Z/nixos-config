@@ -4,6 +4,10 @@
 { config, pkgs, ... }:
 
 {
+  # Mesa/i915 for the iGPU (UHD 770) — the host's only GPU now that the
+  # 3080 is passed through (vfio.nix). Was previously set in nvidia.nix.
+  hardware.graphics.enable = true;
+
   programs.hyprland = {
     enable = true;
     xwayland.enable = true;

@@ -24,6 +24,7 @@ in
   home.packages = with pkgs; [
     firefox
     claude-code
+    looking-glass-client # the Windows VM's screen, as a window (see modules/vfio.nix)
 
     # Deferred — uncomment as needed once the base system is solid:
     # discord

@@ -1,7 +1,5 @@
-# Which physical disk gets which role. install.sh rewrites this file
-# interactively at install time after showing you lsblk — these are
-# just likely defaults, never trusted blindly.
+# Written by install.sh on 2026-07-03 — disk role assignment.
 {
-  system = "/dev/nvme0n1"; # NixOS: EFI + LUKS root (the NVMe)
-  storage = "/dev/sda"; # data: LUKS + btrfs (the 2TB SSD)
+  system = "/dev/nvme0n1";
+  storage = "/dev/sdb";
 }
