@@ -10,7 +10,7 @@ in
 {
   home.username = "z";
   home.homeDirectory = "/home/z";
-  home.stateVersion = "25.11"; # do not change later
+  home.stateVersion = "26.05"; # do not change later
 
   programs.home-manager.enable = true;
 

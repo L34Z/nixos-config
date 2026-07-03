@@ -134,5 +134,5 @@
   # networking.hosts entries for the work VMs: re-add from the old config
   # (kept out of this repo) once libvirtd comes back.
 
-  system.stateVersion = "25.11"; # fresh install on 25.11; do not change later
+  system.stateVersion = "26.05"; # fresh install on 26.05; do not change later
 }

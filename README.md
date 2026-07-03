@@ -1,11 +1,11 @@
 # nixos config
 
-NixOS 25.11, Hyprland, home-manager, disko-managed disks, full-disk encryption.
+NixOS 26.05, Hyprland, home-manager, disko-managed disks, full-disk encryption.
 
 ## layout
 
 ```
-flake.nix                    inputs: nixpkgs 25.11, home-manager, disko
+flake.nix                    inputs: nixpkgs 26.05, home-manager, disko
 install.sh                   run from the installer ISO; does the whole install
 hosts/nix/
   configuration.nix          system: boot, plymouth, audio, bluetooth, users
