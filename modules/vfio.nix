@@ -35,9 +35,8 @@
       # default on 26.05 — pick the secboot .fd in virt-manager when creating
       # the VM. (The old qemu.ovmf options were removed.)
       # Run qemu as z: gives the VM process access to /dev/kvmfr0 (Looking
-      # Glass) now and /dev/input/* (evdev passthrough) later without
-      # per-device permission fights. The device ACL is the qemu default
-      # plus kvmfr0.
+      # Glass) without per-device permission fights. The device ACL is the
+      # qemu default plus kvmfr0.
       verbatimConfig = ''
         # NixOS's own default — verbatimConfig REPLACES it, so it must be
         # restated or libvirt re-enables per-VM /dev namespaces, which are
@@ -49,9 +48,7 @@
           "/dev/random", "/dev/urandom",
           "/dev/ptmx", "/dev/kvm",
           "/dev/rtc", "/dev/hpet",
-          "/dev/kvmfr0",
-          "/dev/input/by-id/usb-NuPhy_NuPhy_Air75_V2-event-kbd",
-          "/dev/input/by-id/usb-Razer_Razer_Basilisk_Ultimate_Dongle-event-mouse"
+          "/dev/kvmfr0"
         ]
       '';
     };
@@ -99,11 +96,14 @@
   # ── Still manual, by design (VM-XML / in-VM / hardware steps) ───────────
   # * VM definition in virt-manager: pass through 01:00.0 + 01:00.1, ivshmem
   #   device pointing at /dev/kvmfr0, virtio disk/net drivers.
-  # * evdev input passthrough w/ hotkey (both Ctrls by default): native
-  #   <input type='evdev'> in the XML; by-id paths are in cgroup_device_acl
-  #   above (NuPhy kbd + Razer dongle mouse — swap for the wired
-  #   ...Basilisk_Ultimate_000000000000-event-mouse node if the mouse is
-  #   used corded).
+  # * Input capture: use Looking Glass's own capture (spice, relative +
+  #   input:rawMouse for gaming), NOT evdev. evdev <input type='evdev'>
+  #   passthrough was REMOVED 2026-07-03: input-linux opened the NuPhy/Razer
+  #   nodes but QEMU silently closed each fd on the first event read (0 open
+  #   fds observed across a boot + live QMP object-add), so ctrl-ctrl never
+  #   grabbed. It also read every host keystroke (grab='all'), so good riddance.
+  #   Remap LG's escape/capture key off ScrollLock (input:escapeKey) — the
+  #   Air75 V2 has no ScrollLock.
   # * Error 43: did NOT appear (2026-07-03, current GeForce driver) — no
   #   vendor_id spoof / kvm hidden needed. Add to the XML only if it shows up.
   # * Looking Glass host app inside Windows: install B7 to match the host

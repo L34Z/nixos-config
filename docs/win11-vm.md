@@ -103,45 +103,50 @@ It is **not** Shift+F12.
    `HKLM\SYSTEM\CurrentControlSet\Enum\PCI\VEN_10DE&DEV_1AEF&...\<instance>\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties`
    and reboot the guest. **Re-check after every GeForce driver update** — the
    installer likes to flip it back.
-4. **Display head for the 3080 (pending — blocks Looking Glass).** NVIDIA
-   Control Panel has no display options and there's no correct resolution/
-   refresh until the card drives an active output; right now it's headless (the
-   Spice/QXL virtual display you see is a throwaway console, ~60 Hz — don't
-   bother tuning it). Options, best first:
-   - **Real monitor (preferred):** run **DisplayPort** from a 3080 DP output to
-     the Samsung G7's second DP input → a true 2560x1440@240 EDID. You don't
-     have to select that input (the GPU only needs the head present), and you
-     gain a native-input gaming path (switch the monitor source) alongside LG.
-     HDMI can't do 1440p240 (HDMI 2.0 ≈ 14 Gbps data < ~23 needed); the G7's
-     240 Hz is DP-only. **Caveat:** if the G7 drops EDID/hotplug on the
-     unselected input, the head churns and LG loses capture (cf. the Dell HDMI
-     churn hit host-side) — verify the guest keeps the head while the monitor
-     shows the host input.
-   - **Dummy plug:** hardware-clean, but must be **DP or HDMI 2.1** for 240 Hz,
-     and its EDID must advertise 1440p240 (cheap HDMI-2.0 4K@60 plugs won't).
-   - **Virtual display driver (VDD, software stopgap):** an IddCx virtual
-     monitor (e.g. MikeTheTech's VDD) lets you build/test LG now with no
-     hardware. Doesn't reduce GPU render FPS, but adds ~1 frame of composition
-     latency and may forfeit fullscreen-exclusive flip vs a real head — fine as
-     a bridge; set it to 1440p240 so swapping to the real head changes nothing.
-5. **Looking Glass B7 host app (pending).** Install B7 to match the host
-   client/kvmfr (both B7 from nixpkgs). The **IVSHMEM driver still needs a
-   manual install** — the by-hand DISM deploy bypassed the autounattend
-   injection (not urgent: LG can't capture until step 4 gives it a head). The
-   shared memory is a plain shm file (`/dev/shm/looking-glass`, the LG client's
+4. **Display head for the 3080 — done (DisplayPort → G7).** A DP cable from a
+   3080 output to the Samsung G7's second DP input gives a true 2560x1440@240
+   EDID; the G7 need not have that input selected (the GPU only needs the head
+   present). LG captures it at 2560x1440, confirmed. HDMI can't do 1440p240
+   (HDMI 2.0 ≈ 14 Gbps < ~23 needed; the G7's 240 Hz is DP-only) so any dummy
+   plug must be DP/HDMI 2.1. **Caveat still live:** if the G7 drops EDID on the
+   unselected input the head can churn and LG loses capture (cf. the Dell HDMI
+   churn hit host-side).
+5. **Looking Glass B7 host + IVSHMEM driver — done.** Host app B7 (matches the
+   nixpkgs client/kvmfr) installed in-guest as an auto-starting service; the
+   **IVSHMEM driver** was installed by hand from `unattend.iso` →
+   `\drivers\ivshmem\ivshmem.inf` (Device Manager → *PCI standard RAM
+   Controller*), since the DISM deploy bypassed the autounattend injection.
+   Shared memory is a plain shm file (`/dev/shm/looking-glass`, the LG client's
    default) — **not kvmfr**: on kernel 6.18 VFIO can't DMA-map kvmfr device
    memory and qemu aborts the moment OVMF programs the ivshmem BAR (hw_error in
    vfio_container_region_add, SIGABRT ~5 s into boot). Retry kvmfr when the
    module catches up with the kernel.
+6. **Input capture — Looking Glass, not evdev.** evdev `<input type='evdev'>`
+   passthrough was tried and **abandoned** (see `modules/vfio.nix`): input-linux
+   opens the NuPhy/Razer nodes but QEMU silently closes each fd on the first
+   event read, so the grab never holds (and it read every host keystroke). Use
+   LG's own capture instead — `~/.config/looking-glass/client.ini`:
+   `escapeKey=KEY_END` (the Air75 V2 has no ScrollLock) toggles capture,
+   `rawMouse=yes` for relative gaming input. Spice still carries clipboard/audio.
 
-## Once Looking Glass works
+## Cleanup once Looking Glass works
 
-In `virsh edit win11` (or edit `/home/z/vms/win11/win11.xml` and redefine):
+Edit the domain (`virsh edit win11`, or edit `/home/z/vms/win11/win11.xml` and
+redefine) — **keep** `<graphics type='spice'>`, `<sound>`, `<audio>` and the
+channels (Spice carries LG's clipboard/audio):
 
-- `<video><model type='none'/></video>`, drop the usb tablet input.
-- **Keep** `<graphics type='spice'>`, `<sound>`, `<audio>` and the channels —
-  Spice carries LG's audio and clipboard.
-- Detach all three cdroms; move `<boot order='1'/>` to the vda disk.
+- **`<video><model type='none'/></video>` — done 2026-07-03.** This is not just
+  tidy, it's *required*: with both QXL and the 3080 present, every Spice
+  connect/disconnect hot-plugs the QXL display, reshuffling the primary and
+  resolution, which crashed the LG host capture and warped the absolute mouse
+  (clicks jumped to a fixed point). Also **never run virt-viewer alongside the
+  LG client** — they fight over the one Spice server and virt-viewer kicks LG
+  off. With `model='none'` the 3080/G7 is the sole display: mouse aligns, no
+  flapping, and there's no QXL picture to tempt you into virt-viewer.
+- **Pending:** drop the usb tablet input; detach the three cdroms; move
+  `<boot order='1'/>` to the vda disk. (Fallback if LG ever won't start: there's
+  no Spice picture anymore — use SSH → `virsh destroy win11`, or revert
+  `model='none'` to get a QXL console back.)
 
 ## Notes
 
