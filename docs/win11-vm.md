@@ -143,10 +143,13 @@ channels (Spice carries LG's clipboard/audio):
   LG client** — they fight over the one Spice server and virt-viewer kicks LG
   off. With `model='none'` the 3080/G7 is the sole display: mouse aligns, no
   flapping, and there's no QXL picture to tempt you into virt-viewer.
-- **Pending:** drop the usb tablet input; detach the three cdroms; move
-  `<boot order='1'/>` to the vda disk. (Fallback if LG ever won't start: there's
-  no Spice picture anymore — use SSH → `virsh destroy win11`, or revert
-  `model='none'` to get a QXL console back.)
+- **Cdroms detached + `<boot order='1'/>` on vda — done 2026-07-03** (applies
+  next boot). **Kept the usb tablet** on purpose: it's the *absolute* pointer,
+  so the LG mouse tracks the window without capturing — needed for FL Studio /
+  desktop use. The earlier click-jump was the dual-display bug, not the tablet;
+  `model='none'` fixed it. (Fallback if LG ever won't start: no Spice picture
+  anymore — SSH → `virsh destroy win11`, or revert `model='none'` for a QXL
+  console.)
 
 ## Notes
 
