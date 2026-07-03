@@ -40,12 +40,12 @@ in
     looking-glass-client # the Windows VM's screen, as a window (see modules/vfio.nix)
 
     # Deferred — uncomment as needed once the base system is solid:
-    # discord
-    # stremio
+    discord
+    stremio-linux-shell
     # anytype
     # notesnook
     # vscode
-    # zen-browser?   # check packaging state; was rough on linux before
+    # zen-browser  # check packaging state; was rough on linux before
     # qalculate-gtk
     # polychromatic  # needs hardware.openrazer.enable in configuration.nix
     # filezilla
