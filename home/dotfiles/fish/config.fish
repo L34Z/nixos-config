@@ -5,6 +5,10 @@ end
 
 
 set -U fish_greeting
+
+# Route SSH (and ssh-add, git, etc.) to the 1Password SSH agent
+set -gx SSH_AUTH_SOCK $HOME/.1password/agent.sock
+
 oh-my-posh init fish --config ~/.config/fish/tokyonight_storm.omp.json | source
 source ~/.config/fish/aliases.fish
 zoxide init fish | source
