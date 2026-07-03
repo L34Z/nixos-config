@@ -39,16 +39,44 @@
       # per-device permission fights. The device ACL is the qemu default
       # plus kvmfr0.
       verbatimConfig = ''
+        # NixOS's own default — verbatimConfig REPLACES it, so it must be
+        # restated or libvirt re-enables per-VM /dev namespaces, which are
+        # broken on NixOS (VM start fails creating device nodes).
+        namespaces = []
         user = "z"
         cgroup_device_acl = [
           "/dev/null", "/dev/full", "/dev/zero",
           "/dev/random", "/dev/urandom",
           "/dev/ptmx", "/dev/kvm",
-          "/dev/kvmfr0"
+          "/dev/rtc", "/dev/hpet",
+          "/dev/kvmfr0",
+          "/dev/input/by-id/usb-NuPhy_NuPhy_Air75_V2-event-kbd",
+          "/dev/input/by-id/usb-Razer_Razer_Basilisk_Ultimate_Dongle-event-mouse"
         ]
       '';
     };
   };
+  # ── Host CPU isolation while the VM runs ────────────────────────────────
+  # vcpupin only constrains where qemu may run; nothing stops host tasks
+  # from preempting the pinned vCPUs. This hook shoves the host onto the
+  # E-cores (16-19) for the VM's lifetime — one set-property per unit
+  # (systemctl accepts only one), AllowedCPUs="" resets to unrestricted.
+  virtualisation.libvirtd.hooks.qemu.isolate = pkgs.writeShellScript "qemu-hook-isolate" ''
+    [ "$1" = "win11" ] || exit 0
+    case "$2" in
+      started)
+        for u in system.slice user.slice init.scope; do
+          systemctl set-property --runtime "$u" AllowedCPUs=16-19
+        done
+        ;;
+      release)
+        for u in system.slice user.slice init.scope; do
+          systemctl set-property --runtime "$u" AllowedCPUs=""
+        done
+        ;;
+    esac
+  '';
+
   programs.virt-manager.enable = true;
   users.users.z.extraGroups = [ "libvirtd" ]; # merges with the list in configuration.nix
   # Lets virt-manager hand USB devices to the VM (game controllers etc.)
@@ -71,9 +99,11 @@
   # ── Still manual, by design (VM-XML / in-VM / hardware steps) ───────────
   # * VM definition in virt-manager: pass through 01:00.0 + 01:00.1, ivshmem
   #   device pointing at /dev/kvmfr0, virtio disk/net drivers.
-  # * evdev input passthrough w/ hotkey (both Ctrls by default): qemu
-  #   input-linux entries in the XML; add the /dev/input/by-id paths to
-  #   cgroup_device_acl above when wiring it.
+  # * evdev input passthrough w/ hotkey (both Ctrls by default): native
+  #   <input type='evdev'> in the XML; by-id paths are in cgroup_device_acl
+  #   above (NuPhy kbd + Razer dongle mouse — swap for the wired
+  #   ...Basilisk_Ultimate_000000000000-event-mouse node if the mouse is
+  #   used corded).
   # * Error 43: only if it actually appears (unlikely on current NVIDIA
   #   drivers) — vendor_id spoof + kvm hidden in the XML.
   # * Looking Glass host app inside Windows: install B7 to match the host
