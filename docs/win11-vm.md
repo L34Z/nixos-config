@@ -97,12 +97,25 @@ It is **not** Shift+F12.
    passthrough verified end-to-end.
 2. **virtio guest tools — done.** `virtio-win-guest-tools.exe` from the mounted
    virtio-win.iso (NetKVM/balloon/serial/qemu-ga); networking works.
-3. **MSI check (pending).** Device Manager → the 3080's *High Definition Audio
-   Controller* → Resources. Negative IRQ = MSI, fine. Positive IRQ =
-   line-based: set `MSISupported` (DWORD) = 1 under
-   `HKLM\SYSTEM\CurrentControlSet\Enum\PCI\VEN_10DE&DEV_1AEF&...\<instance>\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties`
-   and reboot the guest. **Re-check after every GeForce driver update** — the
-   installer likes to flip it back.
+3. **MSI mode — done 2026-07-03.** The GPU (`DEV_2216`) already had
+   `MSISupported=1`; the *High Definition Audio Controller* (`DEV_1AEF`) was
+   `0` (line-based) and is now set to `1`. Applies on the next guest reboot.
+   **Re-check after every GeForce driver update** — the installer likes to flip
+   the audio function back to line-based.
+
+   No RDP/Device-Manager needed: `qemu-ga` runs as SYSTEM, so drive the guest
+   registry from the host while the VM is up. Report, then set:
+   ```
+   # PowerShell body, over VEN_10DE PCI devices:
+   #   report: (Get-ItemProperty $imp -Name MSISupported).MSISupported
+   #   set:    Set-ItemProperty $imp -Name MSISupported -Value 1 -Type DWord
+   # where $imp = <inst>\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties
+   # base64 it (UTF-16LE) and run via:
+   virsh -c qemu:///system qemu-agent-command win11 \
+     '{"execute":"guest-exec","arguments":{"path":"powershell.exe",
+       "arg":["-NoProfile","-EncodedCommand","<b64>"],"capture-output":true}}'
+   # then guest-exec-status {"pid":N} and base64 -d the out-data.
+   ```
 4. **Display head for the 3080 — done (DisplayPort → G7).** A DP cable from a
    3080 output to the Samsung G7's second DP input gives a true 2560x1440@240
    EDID; the G7 need not have that input selected (the GPU only needs the head
@@ -150,6 +163,21 @@ channels (Spice carries LG's clipboard/audio):
   `model='none'` fixed it. (Fallback if LG ever won't start: no Spice picture
   anymore — SSH → `virsh destroy win11`, or revert `model='none'` for a QXL
   console.)
+
+## Launching
+
+The `win11` fish function (`home/dotfiles/fish/aliases.fish`, live-symlinked —
+no rebuild) is the one command:
+
+- `win11` — start the domain if it isn't running, then open the Looking Glass
+  window (backgrounded/disowned; LG reads `~/.config/looking-glass/client.ini`).
+  Press **KEY_END** to toggle capture (grabs kbd+mouse, relative); hold it for
+  the help menu.
+- `win11 stop` — graceful ACPI shutdown · `win11 kill` — force off ·
+  `win11 status` — domain state.
+
+Display is the 3080→G7 head (sole output; `<video model='none'/>`). Do **not**
+run `virt-viewer` alongside LG — they fight over the one Spice server.
 
 ## Notes
 

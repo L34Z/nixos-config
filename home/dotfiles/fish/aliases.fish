@@ -29,6 +29,34 @@ alias udc 'udisksctl'
 alias weather 'curl wttr.in'
 
 
+#### WINDOWS 11 VM (RTX 3080 passthrough + Looking Glass) ####
+# win11            start the VM if it isn't up, then open the Looking Glass window
+# win11 stop       graceful ACPI shutdown
+# win11 kill       force off (virsh destroy) — use if the guest hangs
+# win11 status     print the domain state
+# Domain lives on qemu:///system; LG reads ~/.config/looking-glass/client.ini.
+function win11
+    set -l uri qemu:///system
+    switch "$argv[1]"
+        case '' start view
+            if test "$(virsh -c $uri domstate win11 2>/dev/null)" != running
+                echo "Starting win11…"
+                virsh -c $uri start win11; or return 1
+                sleep 2   # let qemu open the spice socket before LG connects
+            end
+            looking-glass-client &; disown
+        case stop shutdown
+            virsh -c $uri shutdown win11
+        case kill destroy force
+            virsh -c $uri destroy win11
+        case status state
+            virsh -c $uri domstate win11
+        case '*'
+            echo "usage: win11 [start|stop|kill|status]"
+    end
+end
+
+
 
 #### FUNCTIONS ####
 
