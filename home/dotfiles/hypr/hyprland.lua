@@ -15,10 +15,16 @@
 --     drift. This also fixes the old bug where workspaces 1/2/3 (and hyprpaper)
 --     pinned to an output that is never defined — they now pin to the
 --     real primary via `primary`.
---   * Constructs whose clean hl.* form is not confirmed for 0.55 are emitted
---     via the hyprctl shell-out escape hatch (there is no raw-hyprlang keyword
---     from Lua): the `[workspace special:…] cmd` spawn prefixes and the
---     fullscreen mode dispatchers (0 = true fullscreen, 1 = maximize).
+--   * Exec-into-a-special-workspace uses the exec RULES TABLE, not a shell-out:
+--     hl.exec_cmd(cmd, { workspace = "special:… silent" }) — both the immediate
+--     (hl.exec_cmd) and the dispatcher (hl.dsp.exec_cmd) forms accept it.
+--     Do NOT `hl.dsp.exec_cmd("hyprctl dispatch exec '[workspace …] cmd'")`:
+--     under the Lua config hyprctl evaluates its argument AS Lua, so that flat
+--     string is a syntax error and silently no-ops. That shell-out "escape
+--     hatch" was the original migration bug — it broke every scratchpad spawn,
+--     the prewarm, and the fullscreen binds.
+--   * Fullscreen uses the confirmed 0.55 string modes: "maximized" (keeps
+--     bar/gaps) and "fullscreen" (true fullscreen).
 -- ============================================================================
 
 
@@ -174,6 +180,10 @@ hl.layer_rule({ match = { namespace = "waybar" }, ignore_alpha = 0.2 })
 --------------------------------
 
 hl.window_rule({ match = { class = "^(1Password)$" }, float = true })
+-- 1Password is single-instance: launching it a second time just signals the
+-- already-running process, so the launch's workspace assignment can be lost.
+-- A persistent rule guarantees its window always lands in its scratch.
+hl.window_rule({ match = { class = "^(1Password)$" }, workspace = "special:1password" })
 hl.window_rule({ match = { class = ".*" }, suppress_event = "maximize" })
 
 -- Pin the first three workspaces to the primary output (was the never-defined
@@ -193,11 +203,9 @@ hl.bind(mainMod .. " + RETURN", hl.dsp.exec_cmd(terminal))
 hl.bind(mainMod .. " + K",      hl.dsp.window.close())
 hl.bind(mainMod .. " + END",    hl.dsp.exit())
 hl.bind(mainMod .. " + V",      hl.dsp.window.float({ action = "toggle" }))
--- fullscreen mode dispatchers via escape hatch (mode 1 = maximize keeps bar/gaps;
--- mode 0 = true fullscreen). The hl.dsp.window.fullscreen `mode` values are not
--- confirmed for 0.55, so shell out to preserve exact behaviour.
-hl.bind(mainMod .. " + F",         hl.dsp.exec_cmd("hyprctl dispatch fullscreen 1"))  -- maximize
-hl.bind(mainMod .. " + SHIFT + F", hl.dsp.exec_cmd("hyprctl dispatch fullscreen 0"))  -- true fullscreen
+-- fullscreen dispatchers (confirmed 0.55 string modes)
+hl.bind(mainMod .. " + F",         hl.dsp.window.fullscreen("maximized"))   -- maximize (keeps bar/gaps)
+hl.bind(mainMod .. " + SHIFT + F", hl.dsp.window.fullscreen("fullscreen"))  -- true fullscreen
 hl.bind(mainMod .. " + SPACE", hl.dsp.exec_cmd(menu))
 hl.bind(mainMod .. " + J",     hl.dsp.layout("togglesplit"))  -- dwindle
 hl.bind(mainMod .. " + B",     hl.dsp.exec_cmd(browser))
@@ -229,27 +237,27 @@ hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
 ---- SPECIAL WORKSPACES  ----
 -----------------------------
 
--- Homogeneous toggle+spawn scratchpads. Each row generates two binds:
---   SUPER + <key>          -> toggle the special workspace
---   SUPER + SHIFT + <key>  -> spawn <cmd> into that special workspace
--- Rows with prewarm=true are also pre-spawned (silent) at startup.
--- Spawn/prewarm use the hyprctl escape hatch because the `[workspace special:…]`
--- exec prefix has no confirmed clean hl.dsp form.
+-- Homogeneous toggle+launch scratchpads. Each row is pre-launched (hidden) into
+-- its special workspace at startup (see AUTOSTART) and generates two binds:
+--   SUPER + <key>          -> toggle that scratch workspace show/hide
+--   SUPER + SHIFT + <key>  -> (re)launch <cmd> into that scratch workspace
+-- Launch passes the target as an exec rule (workspace = "special:<name>"); see
+-- the migration note about why the hyprctl shell-out must NOT be used here.
 local scratchpads = {
-    { key = "BACKSPACE", name = "terminal",  cmd = terminal,               prewarm = true  },
-    { key = "ESCAPE",    name = "btop",      cmd = terminal .. " btop",     prewarm = true  },
-    { key = "R",         name = "ranger",    cmd = terminal .. " ranger",   prewarm = true  },
-    { key = "A",         name = "audio",     cmd = "pavucontrol",           prewarm = false },
-    { key = "P",         name = "1password", cmd = pass,                    prewarm = false },
+    { key = "BACKSPACE", name = "terminal",  cmd = terminal              },  -- plain shell
+    { key = "P",         name = "1password", cmd = pass                  },  -- window rule pins it here; launch also gives tray + SSH agent
+    { key = "backslash", name = "audio",     cmd = "pavucontrol"         },  -- "\" / "|" audio panel
+    { key = "ESCAPE",    name = "btop",      cmd = terminal .. " btop"   },
+    { key = "R",         name = "ranger",    cmd = terminal .. " ranger" },
 }
 
 for _, s in ipairs(scratchpads) do
     hl.bind(mainMod .. " + " .. s.key, hl.dsp.workspace.toggle_special(s.name))
     hl.bind(mainMod .. " + SHIFT + " .. s.key,
-        hl.dsp.exec_cmd("hyprctl dispatch exec '[workspace special:" .. s.name .. "] " .. s.cmd .. "'"))
+        hl.dsp.exec_cmd(s.cmd, { workspace = "special:" .. s.name }))
 end
 
--- Magic workspace (scratchpad) — odd one out: SHIFT moves the active window in,
+-- Magic workspace (scratchpad) — odd one out: SHIFT MOVES the active window in,
 -- it does not spawn. Kept explicit.
 hl.bind(mainMod .. " + S",         hl.dsp.workspace.toggle_special("magic"))
 hl.bind(mainMod .. " + SHIFT + S", hl.dsp.window.move({ workspace = "special:magic" }))
@@ -263,12 +271,12 @@ local configEditors = {
 }
 for _, e in ipairs(configEditors) do
     hl.bind(mainMod .. " + ALT + " .. e.key,
-        hl.dsp.exec_cmd("hyprctl dispatch exec '[workspace special:" .. e.ws .. "] " .. e.cmd .. "'"))
+        hl.dsp.exec_cmd(e.cmd, { workspace = "special:" .. e.ws }))
 end
 
 -- Power off, in a throwaway special workspace
 hl.bind(mainMod .. " + CTRL + END",
-    hl.dsp.exec_cmd("hyprctl dispatch exec '[workspace special:off] " .. terminal .. " sudo shutdown now'"))
+    hl.dsp.exec_cmd(terminal .. " sudo shutdown now", { workspace = "special:off" }))
 
 -- Screenshots -> clipboard (region / full screen)
 hl.bind("PRINT",         hl.dsp.exec_cmd('grim -g "$(slurp)" - | wl-copy'))
@@ -292,13 +300,12 @@ hl.bind("CTRL + SHIFT + MINUS",        hl.dsp.exec_cmd('wtype "───"'))
 
 hl.on("hyprland.start", function()
     hl.exec_cmd("waybar & swaync & hyprpaper")
-    -- 1Password in the tray; must be running for the SSH agent socket to exist
-    hl.exec_cmd("1password --silent")
 
-    -- Pre-warm the scratchpads that want it (silent, into their special ws).
+    -- Pre-launch EVERY scratchpad, hidden (`silent`), into its special workspace,
+    -- so each is ready to toggle on the first keypress. The 1Password launch here
+    -- doubles as the tray + SSH-agent starter (it must be running for the agent
+    -- socket to exist), so no separate `--silent` launch is needed.
     for _, s in ipairs(scratchpads) do
-        if s.prewarm then
-            hl.exec_cmd("hyprctl dispatch exec '[workspace special:" .. s.name .. " silent] " .. s.cmd .. "'")
-        end
+        hl.exec_cmd(s.cmd, { workspace = "special:" .. s.name .. " silent" })
     end
 end)
