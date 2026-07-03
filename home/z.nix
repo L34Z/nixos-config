@@ -14,6 +14,19 @@ in
 
   programs.home-manager.enable = true;
 
+  # ── Cursor ───────────────────────────────────────────────────────────────
+  # Without a theme installed Hyprland falls back to the bare X11 pointer.
+  # This installs Bibata and wires up XCURSOR (x11), GTK, and hyprcursor at
+  # once. Size stays 24 to match the env lines in dotfiles/hypr/hyprland.conf.
+  home.pointerCursor = {
+    package = pkgs.bibata-cursors;
+    name = "Bibata-Modern-Ice";
+    size = 24;
+    gtk.enable = true;
+    x11.enable = true;
+    hyprcursor.enable = true;
+  };
+
   # Polkit auth agent — GUI privilege prompts (gparted, flatpak, etc.)
   # don't work in a bare Hyprland session without one. Starts with
   # graphical-session.target, which exists because of UWSM.
