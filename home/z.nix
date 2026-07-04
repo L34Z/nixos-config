@@ -77,15 +77,13 @@ in
     # Deferred — uncomment as needed once the base system is solid:
     discord
     stremio-linux-shell
+    fastfetch
     # anytype
     # notesnook
     # vscode
     # zen-browser  # check packaging state; was rough on linux before
     # qalculate-gtk
-    # polychromatic  # needs hardware.openrazer.enable in configuration.nix
     # filezilla
-    # waypaper
-    # rofimoji
   ];
 
   # ── Dotfiles ─────────────────────────────────────────────────────────────
