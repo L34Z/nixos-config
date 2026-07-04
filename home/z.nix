@@ -78,6 +78,7 @@ in
     discord
     stremio-linux-shell
     fastfetch
+    hyprpicker
     # anytype
     # notesnook
     # vscode
