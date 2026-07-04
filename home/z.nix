@@ -72,6 +72,7 @@ in
     firefox
     claude-code
     looking-glass-client # the Windows VM's screen, as a window (see modules/vfio.nix)
+    hyprpicker # screen colour picker; the nexus Colours page shells out to it
 
     # Deferred — uncomment as needed once the base system is solid:
     discord

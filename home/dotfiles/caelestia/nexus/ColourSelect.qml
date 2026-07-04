@@ -10,6 +10,8 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Shapes
+import Quickshell
 import Quickshell.Io
 import Caelestia.Config
 import qs.components
@@ -28,8 +30,16 @@ PageBase {
     property int rev: 0
     property string snapshot
     property bool showAll
+    property bool harmonious: true
+    property var presets: ({})
+    property int presetsRev: 0
 
     readonly property var tokenKeys: schemeData ? Object.keys(schemeData.colours) : []
+
+    readonly property var presetNames: {
+        const _ = presetsRev;
+        return Object.keys(presets).sort();
+    }
 
     readonly property var roles: [
         {
@@ -137,6 +147,86 @@ PageBase {
         cs[`on${cap}FixedVariant`] = hx(withL(c, 0.3));
     }
 
+    function rand(lo: real, hi: real): real {
+        return lo + Math.random() * (hi - lo);
+    }
+
+    function openWheel(title: string, c: color, apply: var): void {
+        wheelPopup.title = title;
+        wheelPopup.initial = c;
+        wheelPopup.apply = apply;
+        wheelPopup.active = true;
+    }
+
+    function pick(xs: var): var {
+        return xs[Math.floor(Math.random() * xs.length)];
+    }
+
+    // Rolls all six roles; the derived tokens fan out via applyRole, so a
+    // generated scheme stays as consistent as a hand-edited one. Revert
+    // still restores the page-open snapshot.
+    function generate(): void {
+        if (!schemeData)
+            return;
+
+        if (harmonious) {
+            // One hue for everything; icons sit a step away on the wheel and
+            // the clock takes a triadic/complementary jump. Base lightness
+            // stays on the current side so light/dark mode is preserved.
+            const dark = schemeData.mode !== "light";
+            const h = Math.random();
+            const spread = pick([-1, 1]) * rand(0.09, 0.17);
+            const sSurface = rand(0.12, 0.35);
+            applyRole("base", Qt.hsla(h, sSurface, dark ? rand(0.07, 0.13) : rand(0.9, 0.96), 1));
+            applyRole("text", Qt.hsla(h, rand(0.05, 0.25), dark ? rand(0.86, 0.94) : rand(0.08, 0.16), 1));
+            applyRole("outer", Qt.hsla(h, sSurface, dark ? rand(0.16, 0.24) : rand(0.8, 0.88), 1));
+            applyRole("inner", Qt.hsla(h, rand(0.5, 0.85), dark ? rand(0.65, 0.82) : rand(0.32, 0.5), 1));
+            applyRole("icons", Qt.hsla((h + spread + 1) % 1, rand(0.4, 0.75), dark ? rand(0.62, 0.8) : rand(0.32, 0.5), 1));
+            applyRole("clock", Qt.hsla((h + pick([0.33, -0.33, 0.5]) + 1) % 1, rand(0.35, 0.7), dark ? rand(0.62, 0.8) : rand(0.32, 0.5), 1));
+        } else {
+            // Anything goes — except text, which is pushed to the far side of
+            // the base lightness so the result is chaotic but never unreadable.
+            const baseL = Math.random();
+            const isL = baseL >= 0.5;
+            applyRole("base", Qt.hsla(Math.random(), Math.random(), baseL, 1));
+            applyRole("text", Qt.hsla(Math.random(), Math.random(), isL ? rand(0, 0.2) : rand(0.8, 1), 1));
+            for (const key of ["outer", "inner", "icons", "clock"])
+                applyRole(key, Qt.hsla(Math.random(), Math.random(), rand(0.15, 0.85), 1));
+        }
+    }
+
+    function persistPresets(): void {
+        presetsFile.setText(JSON.stringify(presets, null, 4));
+    }
+
+    function savePreset(name: string): void {
+        name = name.trim();
+        if (!schemeData || !name)
+            return;
+        presets[name] = JSON.parse(JSON.stringify(schemeData));
+        presetsRev++;
+        persistPresets();
+    }
+
+    function loadPreset(name: string): void {
+        const p = presets[name];
+        if (!p)
+            return;
+        schemeData = JSON.parse(JSON.stringify(p));
+        markDirty();
+    }
+
+    function deletePreset(name: string): void {
+        delete presets[name];
+        presetsRev++;
+        persistPresets();
+    }
+
+    function presetSwatch(name: string, token: string): color {
+        const _ = presetsRev;
+        return `#${presets[name]?.colours[token] ?? "000000"}`;
+    }
+
     function applyRole(key: string, c: color): void {
         if (!schemeData)
             return;
@@ -232,8 +322,377 @@ PageBase {
             }
         }
 
+        FileView {
+            id: presetsFile
+
+            path: `${Paths.state}/colour-presets.json`
+            watchChanges: true
+            onFileChanged: reload()
+            onLoaded: {
+                try {
+                    root.presets = JSON.parse(text());
+                    root.presetsRev++;
+                } catch (e) {
+                    console.warn("[colours page] failed to parse colour-presets.json:", e);
+                }
+            }
+        }
+
+        // The page scrolls inside PageBase's Flickable, so the wheel dialog
+        // reparents itself to the window and overlays everything. Loader is
+        // invisible to the layout; the loaded item lives at window level.
+        Loader {
+            id: wheelPopup
+
+            property string title
+            property color initial
+            property var apply
+
+            visible: false
+            active: false
+            onLoaded: item.parent = QsWindow.window.contentItem
+
+            sourceComponent: MouseArea {
+                id: overlay
+
+                property real eh
+                property real es
+                property real el
+
+                function push(): void {
+                    wheelPopup.apply(Qt.hsla(eh, es, el, 1));
+                }
+
+                anchors.fill: parent
+                focus: true
+                hoverEnabled: true
+                onClicked: wheelPopup.active = false
+                Keys.onEscapePressed: wheelPopup.active = false
+
+                Component.onCompleted: {
+                    eh = Math.max(0, wheelPopup.initial.hslHue);
+                    es = wheelPopup.initial.hslSaturation;
+                    el = wheelPopup.initial.hslLightness;
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: Qt.alpha(Colours.palette.m3scrim, 0.5)
+                }
+
+                StyledRect {
+                    anchors.centerIn: parent
+                    implicitWidth: dialogLayout.implicitWidth + Tokens.padding.largeIncreased * 2
+                    implicitHeight: dialogLayout.implicitHeight + Tokens.padding.largeIncreased * 2
+                    color: Colours.palette.m3surfaceContainerHigh
+                    radius: Tokens.rounding.large
+
+                    MouseArea {
+                        anchors.fill: parent
+                    }
+
+                    ColumnLayout {
+                        id: dialogLayout
+
+                        anchors.centerIn: parent
+                        spacing: Tokens.spacing.medium
+
+                        StyledText {
+                            Layout.fillWidth: true
+                            text: wheelPopup.title
+                            font: Tokens.font.body.small
+                            elide: Text.ElideRight
+                        }
+
+                        Item {
+                            id: wheel
+
+                            readonly property real r: implicitWidth / 2
+
+                            Layout.alignment: Qt.AlignHCenter
+                            implicitWidth: 200
+                            implicitHeight: 200
+
+                            // Hue ring (conical) + desaturation-to-grey overlay
+                            // (radial); Qt conical gradients run visually
+                            // counter-clockwise from 3 o'clock, hence the
+                            // atan2(-dy, dx) in the mouse mapping below.
+                            Shape {
+                                anchors.fill: parent
+                                preferredRendererType: Shape.CurveRenderer
+
+                                ShapePath {
+                                    strokeWidth: -1
+                                    fillGradient: ConicalGradient {
+                                        centerX: wheel.r
+                                        centerY: wheel.r
+                                        angle: 0
+
+                                        GradientStop {
+                                            position: 0
+                                            color: Qt.hsla(0, 1, 0.5, 1)
+                                        }
+                                        GradientStop {
+                                            position: 1 / 6
+                                            color: Qt.hsla(1 / 6, 1, 0.5, 1)
+                                        }
+                                        GradientStop {
+                                            position: 2 / 6
+                                            color: Qt.hsla(2 / 6, 1, 0.5, 1)
+                                        }
+                                        GradientStop {
+                                            position: 0.5
+                                            color: Qt.hsla(0.5, 1, 0.5, 1)
+                                        }
+                                        GradientStop {
+                                            position: 4 / 6
+                                            color: Qt.hsla(4 / 6, 1, 0.5, 1)
+                                        }
+                                        GradientStop {
+                                            position: 5 / 6
+                                            color: Qt.hsla(5 / 6, 1, 0.5, 1)
+                                        }
+                                        GradientStop {
+                                            position: 1
+                                            color: Qt.hsla(0, 1, 0.5, 1)
+                                        }
+                                    }
+
+                                    PathAngleArc {
+                                        centerX: wheel.r
+                                        centerY: wheel.r
+                                        radiusX: wheel.r
+                                        radiusY: wheel.r
+                                        startAngle: 0
+                                        sweepAngle: 360
+                                    }
+                                }
+
+                                ShapePath {
+                                    strokeWidth: -1
+                                    fillGradient: RadialGradient {
+                                        centerX: wheel.r
+                                        centerY: wheel.r
+                                        focalX: wheel.r
+                                        focalY: wheel.r
+                                        centerRadius: wheel.r
+
+                                        GradientStop {
+                                            position: 0
+                                            color: Qt.hsla(0, 0, 0.5, 1)
+                                        }
+                                        GradientStop {
+                                            position: 1
+                                            color: Qt.hsla(0, 0, 0.5, 0)
+                                        }
+                                    }
+
+                                    PathAngleArc {
+                                        centerX: wheel.r
+                                        centerY: wheel.r
+                                        radiusX: wheel.r
+                                        radiusY: wheel.r
+                                        startAngle: 0
+                                        sweepAngle: 360
+                                    }
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+
+                                function grab(mx: real, my: real): void {
+                                    const dx = mx - wheel.r;
+                                    const dy = my - wheel.r;
+                                    overlay.eh = (Math.atan2(-dy, dx) / (2 * Math.PI) + 1) % 1;
+                                    overlay.es = Math.min(1, Math.hypot(dx, dy) / wheel.r);
+                                    overlay.push();
+                                }
+
+                                onPressed: e => grab(e.x, e.y)
+                                onPositionChanged: e => {
+                                    if (pressed)
+                                        grab(e.x, e.y);
+                                }
+                            }
+
+                            Rectangle {
+                                readonly property real ang: overlay.eh * 2 * Math.PI
+
+                                x: wheel.r + Math.cos(ang) * overlay.es * wheel.r - width / 2
+                                y: wheel.r - Math.sin(ang) * overlay.es * wheel.r - height / 2
+                                width: 16
+                                height: 16
+                                radius: 8
+                                color: Qt.hsla(overlay.eh, overlay.es, overlay.el, 1)
+                                border.width: 2
+                                border.color: overlay.el >= 0.5 ? "#000000" : "#ffffff"
+                            }
+                        }
+
+                        HslSlider {
+                            label: qsTr("Lightness")
+                            display: `${Math.round(overlay.el * 100)}%`
+                            value: overlay.el
+                            onMoved: v => {
+                                overlay.el = v;
+                                overlay.push();
+                            }
+                        }
+
+                        RowLayout {
+                            spacing: Tokens.spacing.medium
+
+                            StyledRect {
+                                implicitWidth: implicitHeight
+                                implicitHeight: Tokens.font.icon.medium.pointSize + Tokens.padding.small * 2
+                                color: Qt.hsla(overlay.eh, overlay.es, overlay.el, 1)
+                                radius: Tokens.rounding.full
+                                border.width: 1
+                                border.color: Colours.palette.m3outlineVariant
+                            }
+
+                            StyledText {
+                                Layout.fillWidth: true
+                                text: `#${root.hx(Qt.hsla(overlay.eh, overlay.es, overlay.el, 1))}`
+                                color: Colours.palette.m3onSurfaceVariant
+                                font: Tokens.font.body.small
+                            }
+
+                            StyledRect {
+                                implicitWidth: pickLayout.implicitWidth + Tokens.padding.medium * 2
+                                implicitHeight: pickLayout.implicitHeight + Tokens.padding.small * 2
+                                color: Colours.palette.m3secondaryContainer
+                                radius: Tokens.rounding.full
+
+                                StateLayer {
+                                    onClicked: pickerProc.running = true
+                                }
+
+                                RowLayout {
+                                    id: pickLayout
+
+                                    anchors.centerIn: parent
+                                    spacing: Tokens.spacing.small
+
+                                    MaterialIcon {
+                                        text: "colorize"
+                                        color: Colours.palette.m3onSecondaryContainer
+                                        fontStyle: Tokens.font.icon.small
+                                    }
+
+                                    StyledText {
+                                        text: qsTr("Pick")
+                                        color: Colours.palette.m3onSecondaryContainer
+                                        font: Tokens.font.label.small
+                                    }
+                                }
+                            }
+
+                            StyledRect {
+                                implicitWidth: doneLabel.implicitWidth + Tokens.padding.medium * 2
+                                implicitHeight: doneLabel.implicitHeight + Tokens.padding.small * 2
+                                color: Colours.palette.m3primary
+                                radius: Tokens.rounding.full
+
+                                StateLayer {
+                                    onClicked: wheelPopup.active = false
+                                }
+
+                                StyledText {
+                                    id: doneLabel
+
+                                    anchors.centerIn: parent
+                                    text: qsTr("Done")
+                                    color: Colours.palette.m3onPrimary
+                                    font: Tokens.font.label.small
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Process {
+                    id: pickerProc
+
+                    command: ["hyprpicker"]
+                    stdout: StdioCollector {
+                        onStreamFinished: {
+                            const m = text.trim().match(/#?([0-9a-fA-F]{6})/);
+                            if (!m)
+                                return;
+                            const c = root.toColour(m[1]);
+                            overlay.eh = Math.max(0, c.hslHue);
+                            overlay.es = c.hslSaturation;
+                            overlay.el = c.hslLightness;
+                            overlay.push();
+                        }
+                    }
+                }
+            }
+        }
+
         SectionHeader {
             first: true
+            text: qsTr("Generate")
+        }
+
+        ConnectedRect {
+            first: true
+
+            Layout.fillWidth: true
+            implicitHeight: generateLayout.implicitHeight + Tokens.padding.medium * 2
+
+            StateLayer {
+                onClicked: root.generate()
+            }
+
+            RowLayout {
+                id: generateLayout
+
+                anchors.fill: parent
+                anchors.margins: Tokens.padding.medium
+                anchors.leftMargin: Tokens.padding.largeIncreased
+                anchors.rightMargin: Tokens.padding.largeIncreased
+                spacing: Tokens.spacing.medium
+
+                MaterialIcon {
+                    text: "casino"
+                    color: Colours.palette.m3primary
+                    fontStyle: Tokens.font.icon.medium
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 0
+
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: qsTr("Random palette")
+                        font: Tokens.font.body.small
+                        elide: Text.ElideRight
+                    }
+
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: root.harmonious ? qsTr("One hue, matching shades — keeps light/dark mode") : qsTr("Anything goes — may flip light/dark mode")
+                        color: Colours.palette.m3outline
+                        font: Tokens.font.label.small
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+        }
+
+        ToggleRow {
+            last: true
+            text: qsTr("Harmonious")
+            subtext: qsTr("Derive every role from a single random hue")
+            checked: root.harmonious
+            onToggled: root.harmonious = checked
+        }
+
+        SectionHeader {
             text: qsTr("Preview")
         }
 
@@ -368,6 +827,64 @@ PageBase {
             model: root.showAll ? root.tokenKeys : []
 
             TokenRow {}
+        }
+
+        SectionHeader {
+            text: qsTr("Presets")
+        }
+
+        ConnectedRect {
+            first: true
+            last: root.presetNames.length === 0
+
+            Layout.fillWidth: true
+            implicitHeight: saveLayout.implicitHeight + Tokens.padding.medium * 2
+
+            RowLayout {
+                id: saveLayout
+
+                anchors.fill: parent
+                anchors.margins: Tokens.padding.medium
+                anchors.leftMargin: Tokens.padding.largeIncreased
+                anchors.rightMargin: Tokens.padding.largeIncreased
+                spacing: Tokens.spacing.medium
+
+                StyledTextField {
+                    id: presetNameField
+
+                    Layout.fillWidth: true
+                    leadingIcon: "bookmark_add"
+                    placeholderText: qsTr("Preset name")
+                    supportingText: qsTr("Saves the current scheme — same name overwrites")
+                    onAccepted: root.savePreset(text)
+                }
+
+                StyledRect {
+                    implicitWidth: implicitHeight
+                    implicitHeight: saveIcon.implicitHeight + Tokens.padding.small * 2
+                    color: presetNameField.text.trim() ? Colours.palette.m3primary : Colours.palette.m3surfaceContainer
+                    radius: Tokens.rounding.full
+
+                    StateLayer {
+                        onClicked: root.savePreset(presetNameField.text)
+                    }
+
+                    MaterialIcon {
+                        id: saveIcon
+
+                        anchors.centerIn: parent
+                        text: "save"
+                        color: presetNameField.text.trim() ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+                        fontStyle: Tokens.font.icon.medium
+                    }
+                }
+            }
+        }
+
+        Repeater {
+            model: root.presetNames
+
+            PresetRow {}
         }
 
         SectionHeader {
@@ -533,6 +1050,18 @@ PageBase {
                         radius: Tokens.rounding.full
                         border.width: 1
                         border.color: Colours.palette.m3outlineVariant
+
+                        StateLayer {
+                            onClicked: {
+                                row.beginEdit();
+                                root.openWheel(row.modelData.label, root.tokenColour(row.modelData.token), c => {
+                                    row.eh = Math.max(0, c.hslHue);
+                                    row.es = c.hslSaturation;
+                                    row.el = c.hslLightness;
+                                    row.applyEdit();
+                                });
+                            }
+                        }
                     }
 
                     MaterialIcon {
@@ -659,6 +1188,97 @@ PageBase {
         }
     }
 
+    component PresetRow: ConnectedRect {
+        id: prow
+
+        required property string modelData
+        required property int index
+
+        // Two-step delete: first click arms (icon + colour change), second
+        // within 3s deletes; anywhere else on the row loads the preset.
+        property bool confirmingDelete
+
+        first: false
+        last: index === root.presetNames.length - 1
+
+        Layout.fillWidth: true
+        implicitHeight: presetLayout.implicitHeight + Tokens.padding.small * 2
+
+        StateLayer {
+            onClicked: root.loadPreset(prow.modelData)
+        }
+
+        Timer {
+            id: disarmTimer
+
+            interval: 3000
+            onTriggered: prow.confirmingDelete = false
+        }
+
+        RowLayout {
+            id: presetLayout
+
+            anchors.fill: parent
+            anchors.margins: Tokens.padding.small
+            anchors.leftMargin: Tokens.padding.largeIncreased
+            anchors.rightMargin: Tokens.padding.largeIncreased
+            spacing: Tokens.spacing.medium
+
+            Row {
+                spacing: -Tokens.padding.small
+
+                Repeater {
+                    model: ["surface", "primary", "secondary", "tertiary"]
+
+                    StyledRect {
+                        required property string modelData
+
+                        implicitWidth: implicitHeight
+                        implicitHeight: Tokens.font.label.small.pointSize + Tokens.padding.small * 2
+                        color: root.presetSwatch(prow.modelData, modelData)
+                        radius: Tokens.rounding.full
+                        border.width: 1
+                        border.color: Colours.palette.m3outlineVariant
+                    }
+                }
+            }
+
+            StyledText {
+                Layout.fillWidth: true
+                text: prow.modelData
+                font: Tokens.font.body.small
+                elide: Text.ElideRight
+            }
+
+            StyledRect {
+                implicitWidth: implicitHeight
+                implicitHeight: deleteIcon.implicitHeight + Tokens.padding.small * 2
+                color: prow.confirmingDelete ? Colours.palette.m3errorContainer : "transparent"
+                radius: Tokens.rounding.full
+
+                StateLayer {
+                    onClicked: {
+                        if (prow.confirmingDelete) {
+                            root.deletePreset(prow.modelData);
+                        } else {
+                            prow.confirmingDelete = true;
+                            disarmTimer.restart();
+                        }
+                    }
+                }
+
+                MaterialIcon {
+                    id: deleteIcon
+
+                    anchors.centerIn: parent
+                    text: prow.confirmingDelete ? "delete_forever" : "delete"
+                    color: prow.confirmingDelete ? Colours.palette.m3onErrorContainer : Colours.palette.m3onSurfaceVariant
+                    fontStyle: Tokens.font.icon.small
+                }
+            }
+        }
+    }
+
     component TokenRow: ConnectedRect {
         id: trow
 
@@ -687,6 +1307,10 @@ PageBase {
                 radius: Tokens.rounding.full
                 border.width: 1
                 border.color: Colours.palette.m3outlineVariant
+
+                StateLayer {
+                    onClicked: root.openWheel(trow.modelData, root.tokenColour(trow.modelData), c => root.setTokenHex(trow.modelData, root.hx(c)))
+                }
             }
 
             StyledText {
