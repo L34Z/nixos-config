@@ -6,7 +6,7 @@
 #   01:00.1 audio 10de:1aef
 # IOMMU group 17 contains exactly these two devices — clean isolation,
 # no ACS override hacks needed.
-{ config, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 {
   # ── IOMMU + early vfio-pci binding ──────────────────────────────────────
@@ -34,9 +34,10 @@
       # UEFI (OVMF) firmware, incl. secure-boot variants, ships with QEMU by
       # default on 26.05 — pick the secboot .fd in virt-manager when creating
       # the VM. (The old qemu.ovmf options were removed.)
-      # Run qemu as z: gives the VM process access to /dev/kvmfr0 (Looking
-      # Glass) without per-device permission fights. The device ACL is the
-      # qemu default plus kvmfr0.
+      # Run qemu as z: the Looking Glass shmem is an ivshmem-plain file at
+      # /dev/shm/looking-glass, and running qemu as z makes that file z-owned
+      # so the LG client (also z) can mmap it. The ACL below is just the qemu
+      # default — a plain shm file lives on tmpfs, so needs no device-node ACL.
       verbatimConfig = ''
         # NixOS's own default — verbatimConfig REPLACES it, so it must be
         # restated or libvirt re-enables per-VM /dev namespaces, which are
@@ -47,12 +48,37 @@
           "/dev/null", "/dev/full", "/dev/zero",
           "/dev/random", "/dev/urandom",
           "/dev/ptmx", "/dev/kvm",
-          "/dev/rtc", "/dev/hpet",
-          "/dev/kvmfr0"
+          "/dev/rtc", "/dev/hpet"
         ]
       '';
     };
   };
+  # ── Make qemu.conf changes go live on `nixos-rebuild switch` ─────────────
+  # By default they don't: libvirtd-config is a oneshot (RemainAfterExit=no)
+  # that NixOS won't re-run on switch, and libvirtd has restartIfChanged=false,
+  # so verbatimConfig edits (namespaces, ACLs) land in the store but never reach
+  # /var/lib/libvirt/qemu.conf until a reboot or manual `systemctl restart
+  # libvirtd`. That drift silently broke Looking Glass once — the VM started
+  # under a stale namespace config, so its ivshmem file went to a private
+  # /dev/shm the host client couldn't see. Tying both units to the config
+  # content makes a switch regenerate the file and reconnect the daemon.
+  # A libvirtd restart does NOT kill running domains (qemu lives in its own
+  # scope; libvirtd reconnects on start) — they simply adopt the new qemu.conf
+  # on their next start, which is exactly when it matters.
+  systemd.services.libvirtd-config.restartTriggers = [
+    config.virtualisation.libvirtd.qemu.verbatimConfig
+  ];
+  systemd.services.libvirtd = {
+    restartIfChanged = lib.mkForce true; # module pins this false; we want switch to apply qemu.conf
+    restartTriggers = [ config.virtualisation.libvirtd.qemu.verbatimConfig ];
+  };
+  # ── Don't let logind delete the VM's shmem on logout ─────────────────────
+  # logind's default RemoveIPC=yes wipes ALL POSIX shm owned by a user when
+  # their last session ends — and qemu runs as z (see above), so a session
+  # crash/logout unlinks /dev/shm/looking-glass out from under the running VM
+  # (happened 2026-07-03 when Hyprland segfaulted: LG couldn't reattach until
+  # the VM was power-cycled, since only qemu startup recreates the file).
+  services.logind.settings.Login.RemoveIPC = false;
   # ── Host CPU isolation while the VM runs ────────────────────────────────
   # vcpupin only constrains where qemu may run; nothing stops host tasks
   # from preempting the pinned vCPUs. This hook shoves the host onto the
@@ -79,23 +105,27 @@
   # Lets virt-manager hand USB devices to the VM (game controllers etc.)
   virtualisation.spiceUSBRedirection.enable = true;
 
-  # ── Looking Glass shared memory (kvmfr) ─────────────────────────────────
-  # DMA-capable framebuffer shared between the VM's 3080 and the host client.
-  # Size: width*height*4bytes*2frames + overhead, rounded up to a power of 2.
-  # 2560x1440 SDR => ~40 MB => 64. If Windows drives the G7 in HDR (10-bit),
-  # frames double => bump to 128.
-  boot.extraModulePackages = [ config.boot.kernelPackages.kvmfr ];
-  boot.kernelModules = [ "kvmfr" ];
-  boot.extraModprobeConfig = ''
-    options kvmfr static_size_mb=64
-  '';
-  services.udev.extraRules = ''
-    SUBSYSTEM=="kvmfr", OWNER="z", GROUP="kvm", MODE="0660"
-  '';
+  # ── Looking Glass shared memory (ivshmem-plain shm file, NOT kvmfr) ──────
+  # The VM exposes a plain ivshmem device backed by /dev/shm/looking-glass (see
+  # the <shmem> block in the domain XML and docs/win11-vm.md); qemu creates that
+  # file on VM start and, running as z (above), makes it z-owned so the LG
+  # client can mmap it. Size the XML <size> to width*height*4B*2frames +
+  # overhead rounded up to a power of 2: 2560x1440 SDR => ~40 MB => 64;
+  # HDR (10-bit) doubles => 128. Nothing is needed here for the shm-file path.
+  #
+  # kvmfr is deliberately NOT used: on kernel 6.18 VFIO can't DMA-map kvmfr
+  # device memory, so qemu SIGABRTs in vfio_container_region_add ~5 s into boot.
+  # To retry kvmfr once the module catches up with the kernel, re-add the four
+  # lines below and repoint the XML <shmem> at /dev/kvmfr0:
+  #   boot.extraModulePackages = [ config.boot.kernelPackages.kvmfr ];
+  #   boot.kernelModules = [ "kvmfr" ];
+  #   boot.extraModprobeConfig = "options kvmfr static_size_mb=64";
+  #   services.udev.extraRules = ''SUBSYSTEM=="kvmfr", OWNER="z", GROUP="kvm", MODE="0660"'';
 
   # ── Still manual, by design (VM-XML / in-VM / hardware steps) ───────────
-  # * VM definition in virt-manager: pass through 01:00.0 + 01:00.1, ivshmem
-  #   device pointing at /dev/kvmfr0, virtio disk/net drivers.
+  # * VM definition in virt-manager: pass through 01:00.0 + 01:00.1, an
+  #   ivshmem-plain <shmem> device (backed by /dev/shm/looking-glass), virtio
+  #   disk/net drivers.
   # * Input capture: use Looking Glass's own capture (spice, relative +
   #   input:rawMouse for gaming), NOT evdev. evdev <input type='evdev'>
   #   passthrough was REMOVED 2026-07-03: input-linux opened the NuPhy/Razer
@@ -107,7 +137,7 @@
   # * Error 43: did NOT appear (2026-07-03, current GeForce driver) — no
   #   vendor_id spoof / kvm hidden needed. Add to the XML only if it shows up.
   # * Looking Glass host app inside Windows: install B7 to match the host
-  #   client/kvmfr (both B7 from nixpkgs). IVSHMEM driver needs a manual
+  #   client (B7 from nixpkgs). IVSHMEM driver needs a manual
   #   install — the by-hand DISM deploy bypassed the autounattend injection.
   # * Display head for the 3080 (LG needs an active output): DisplayPort to the
   #   G7's 2nd input is preferred (real 1440p240 EDID + native-input fallback);

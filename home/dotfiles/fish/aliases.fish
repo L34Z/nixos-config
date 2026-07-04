@@ -42,7 +42,18 @@ function win11
             if test "$(virsh -c $uri domstate win11 2>/dev/null)" != running
                 echo "Starting win11…"
                 virsh -c $uri start win11; or return 1
-                sleep 2   # let qemu open the spice socket before LG connects
+            end
+            # LG mmaps /dev/shm/looking-glass, which qemu creates during device
+            # setup. Wait for it so LG doesn't race in and die with "Invalid
+            # path to the ivshmem file"; give up after ~10s so a failed start
+            # doesn't hang the shell.
+            for i in (seq 20)
+                test -e /dev/shm/looking-glass; and break
+                sleep 0.5
+            end
+            if not test -e /dev/shm/looking-glass
+                echo "win11: /dev/shm/looking-glass never appeared — did the VM start? (virsh -c $uri domstate win11)" >&2
+                return 1
             end
             looking-glass-client &; disown
         case stop shutdown

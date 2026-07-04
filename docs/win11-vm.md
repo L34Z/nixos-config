@@ -4,19 +4,36 @@ Artifacts live in `/home/z/vms/win11/` (domain XML, autounattend, ISOs, 512G
 raw image). The domain is defined on `qemu:///system` — **always** use
 `virsh -c qemu:///system`; the session daemon shows nothing.
 
-## Prerequisite (once)
+## Prerequisite
 
-The running generation must include the latest `modules/vfio.nix`
-(evdev ACL, `namespaces = []`, host-isolation hook):
+Just switch — the qemu.conf now applies itself:
 
 ```
 sudo nixos-rebuild switch --flake ~/nixos#nix
-sudo systemctl restart libvirtd   # only if no VM is running
 ```
 
-NixOS deliberately does **not** restart libvirtd on switch (it would kill
-running VMs), so qemu.conf changes (device ACL, namespaces) and hook
-updates from `modules/vfio.nix` are NOT live until libvirtd restarts.
+Stock NixOS pins `libvirtd` `restartIfChanged = false` and never re-runs the
+oneshot `libvirtd-config` on switch, so `qemu.conf` edits (device ACL,
+`namespaces = []`) used to sit in the store and stay **stale in
+`/var/lib/libvirt/qemu.conf` until a reboot or manual `systemctl restart
+libvirtd`**. That bit us once: the VM started under the old namespace config, so
+its ivshmem shm landed in a private `/dev/shm` the host LG client couldn't see
+(`win11` reported `/dev/shm/looking-glass never appeared`). `modules/vfio.nix`
+now ties both units to the `qemu.conf` content (`restartTriggers` +
+`restartIfChanged = mkForce true`), so a plain `switch` regenerates the file and
+reconnects the daemon. A libvirtd restart does **not** kill running domains
+(qemu runs in its own scope; libvirtd reconnects); they adopt the new config on
+their next start. Manual fallback if ever needed:
+`sudo systemctl restart libvirtd-config.service libvirtd.service`.
+
+There is a second way to hit the same `never appeared` error: logind's default
+`RemoveIPC=yes` deletes all of a user's POSIX shm when their last session ends,
+and qemu runs as z — so a desktop crash/logout unlinks `/dev/shm/looking-glass`
+under the **running** VM (bit us 2026-07-03 when Hyprland segfaulted). Only a VM
+power-cycle recreates the file (a guest reboot isn't enough if Windows ignores
+the ACPI shutdown — check `virsh -c qemu:///system domstate win11`, then
+`virsh -c qemu:///system destroy win11` and start again). `modules/vfio.nix`
+now sets `RemoveIPC=no` so logind leaves the shm alone.
 
 ## Install — done 2026-07-03 (manual DISM; the unattended path failed)
 
@@ -125,7 +142,7 @@ It is **not** Shift+F12.
    unselected input the head can churn and LG loses capture (cf. the Dell HDMI
    churn hit host-side).
 5. **Looking Glass B7 host + IVSHMEM driver — done.** Host app B7 (matches the
-   nixpkgs client/kvmfr) installed in-guest as an auto-starting service; the
+   nixpkgs client) installed in-guest as an auto-starting service; the
    **IVSHMEM driver** was installed by hand from `unattend.iso` →
    `\drivers\ivshmem\ivshmem.inf` (Device Manager → *PCI standard RAM
    Controller*), since the DISM deploy bypassed the autounattend injection.
