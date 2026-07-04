@@ -93,7 +93,7 @@ still runs. `hl.dsp.*` calls return a real dispatcher and run cleanly.)
 Bindings match the old `.conf` 1:1, including the scratchpad keys:
 
 - **SUPER+RETURN** term · **K** close · **END** exit · **V** float · **F/SHIFT+F**
-  maximize/fullscreen · **SPACE** rofi · **J** togglesplit · **B** browser ·
+  maximize/fullscreen · **SPACE** launcher (caelestia) · **J** togglesplit · **B** browser ·
   **L** hyprlock · **arrows** focus · **1-0 / SHIFT+1-0** workspace switch/move.
 - Scratchpads (SUPER toggle · SUPER+SHIFT spawn): **BACKSPACE** terminal ·
   **P** 1Password · **backslash** audio (pavucontrol) · **ESCAPE** btop ·

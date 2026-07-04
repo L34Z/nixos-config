@@ -53,7 +53,6 @@ hl.monitor({ output = "Unknown-1", disabled = true })
 
 local terminal    = "kitty"
 local fileManager = "ranger"                                -- kept for parity (unused directly)
-local menu        = "rofi -show drun"                       -- old launcher script wasn't saved; plain rofi
 local browser     = "firefox"
 local pass        = "1password --ozone-platform-hint=wayland"
 
@@ -88,7 +87,7 @@ hl.config({
     },
 
     decoration = {
-        rounding = 5,
+        rounding = 25,  -- matches caelestia's border rounding (Config.border.rounding default)
 
         active_opacity   = 1.0,
         inactive_opacity = 1.0,
@@ -170,9 +169,7 @@ hl.config({
 ---- LAYER RULES ----
 ------------------
 
-hl.layer_rule({ match = { namespace = "waybar" }, blur         = true })
-hl.layer_rule({ match = { namespace = "waybar" }, blur_popups  = true })
-hl.layer_rule({ match = { namespace = "waybar" }, ignore_alpha = 0.2 })
+-- (waybar rules removed; caelestia's quickshell layers style themselves)
 
 
 --------------------------------
@@ -206,7 +203,9 @@ hl.bind(mainMod .. " + V",      hl.dsp.window.float({ action = "toggle" }))
 -- fullscreen dispatchers (confirmed 0.55 string modes)
 hl.bind(mainMod .. " + F",         hl.dsp.window.fullscreen("maximized"))   -- maximize (keeps bar/gaps)
 hl.bind(mainMod .. " + SHIFT + F", hl.dsp.window.fullscreen("fullscreen"))  -- true fullscreen
-hl.bind(mainMod .. " + SPACE", hl.dsp.exec_cmd(menu))
+-- Launcher: caelestia registers this as a DBus global shortcut; the bind
+-- stays ours, only the target changed (was `rofi -show drun`).
+hl.bind(mainMod .. " + SPACE", hl.dsp.global("caelestia:launcher"))
 hl.bind(mainMod .. " + J",     hl.dsp.layout("togglesplit"))  -- dwindle
 hl.bind(mainMod .. " + B",     hl.dsp.exec_cmd(browser))
 hl.bind(mainMod .. " + L",     hl.dsp.exec_cmd("hyprlock"))
@@ -299,7 +298,10 @@ hl.bind("CTRL + SHIFT + MINUS",        hl.dsp.exec_cmd('wtype "───"'))
 -------------------
 
 hl.on("hyprland.start", function()
-    hl.exec_cmd("waybar & swaync & hyprpaper")
+    -- Caelestia shell = bar + launcher + notification daemon + OSD + wallpaper.
+    -- Must be the ONLY notification daemon (swaync would race it for the
+    -- org.freedesktop.Notifications DBus name) and the only wallpaper drawer.
+    hl.exec_cmd("caelestia shell -d")
 
     -- Pre-launch EVERY scratchpad, hidden (`silent`), into its special workspace,
     -- so each is ready to toggle on the first keypress. The 1Password launch here

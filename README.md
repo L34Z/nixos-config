@@ -12,11 +12,11 @@ hosts/nix/
   disko.nix                  disks: NVMe (LUKS+btrfs root), 2TB SSD (LUKS+keyfile)
   hardware-configuration.nix placeholder, regenerated at install
 modules/
-  desktop.nix                hyprland, waybar, swaync, hyprpaper, hyprlock/idle
+  desktop.nix                hyprland, hyprlock/idle (shell: caelestia, see home/z.nix)
   nvidia.nix                 open kernel module, stable driver
 home/
-  z.nix                      personal apps (MVP set; rest commented), ssh, git
-  dotfiles/                  hypr, waybar, fish, kitty configs
+  z.nix                      personal apps (MVP set; rest commented), caelestia shell, ssh, git
+  dotfiles/                  hypr, fish, kitty configs (waybar kept for rollback)
 ```
 
 ## encryption
@@ -31,7 +31,9 @@ home/
 
 - Rebuild: `nh os switch ~/nixos`
 - hypr and fish dotfiles are out-of-store symlinks: edits apply live, no
-  rebuild. waybar/kitty need a rebuild. Repo must live at `~/nixos`.
+  rebuild. kitty needs a rebuild. caelestia's `~/.config/caelestia/shell.json`
+  is a plain mutable file (the shell writes to it at runtime; seed copy in
+  home/dotfiles/caelestia/). Repo must live at `~/nixos`.
 - Update: `nix flake update && nh os switch ~/nixos`
 
 ## deferred (commented in the configs, flip on when ready)
@@ -44,5 +46,5 @@ theming pipeline (dropped for a static tokyo-night theme).
 
 1. `passwd z` via nixos-enter (install.sh reminds you)
 2. 1Password: sign in, Settings -> Developer -> Use SSH agent
-3. drop a wallpaper at ~/Pictures/wallpaper.png (hyprpaper expects it)
+3. drop a wallpaper in ~/Pictures and `caelestia wallpaper -f <file>`
 4. `git -C ~/nixos remote add origin <url>` and push

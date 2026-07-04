@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, pkgs, inputs, ... }:
 
 let
   # The repo is expected to live at ~/nixos on the installed system.
@@ -33,6 +33,39 @@ in
   # graphical-session.target, which exists because of UWSM.
   services.hyprpolkitagent.enable = true;
 
+  # ── Caelestia shell ──────────────────────────────────────────────────────
+  # Quickshell-based shell: bar + launcher + notifications + OSD + session
+  # menu. Replaces waybar/rofi/swaync/hyprpaper. Module comes from the
+  # caelestia-shell flake input (wired in via home-manager.sharedModules).
+  # Keybinds stay in hyprland.lua: the shell only *registers* global
+  # shortcuts (caelestia:launcher etc.); nothing is bound unless we bind it.
+  programs.caelestia = {
+    enable = true;
+    # QML overrides, swapped in at install time. The QML is installed as
+    # plain files, so this only re-runs the cheap install step — the C++
+    # plugin derivations are reused as-is.
+    #  - ColourSelect: upstream's nexus "Colours" sub-page is an
+    #    under-construction stub; replace it with our colour editor.
+    #  - ActiveWindow: bar window title in m3onPrimary instead of m3primary.
+    package = inputs.caelestia-shell.packages.${pkgs.system}.with-cli.overrideAttrs (prev: {
+      postInstall = (prev.postInstall or "") + ''
+        install -Dm644 ${./dotfiles/caelestia/nexus/ColourSelect.qml} \
+          $out/share/caelestia-shell/modules/nexus/pages/wallandstyle/ColourSelect.qml
+        install -Dm644 ${./dotfiles/caelestia/bar/ActiveWindow.qml} \
+          $out/share/caelestia-shell/modules/bar/components/ActiveWindow.qml
+      '';
+    });
+    # Started from hyprland.lua's autostart like every other session process,
+    # not as a systemd unit — keeps startup logic in one place.
+    systemd.enable = false;
+    cli.enable = true; # `caelestia` command (shell IPC, wallpaper, etc.)
+    # NO `settings` here on purpose: the module renders settings as a read-only
+    # store symlink at ~/.config/caelestia/shell.json, but the shell writes its
+    # config back at runtime (nexus settings app, config plugin) and spams
+    # "Failed to write: Read-only file system" otherwise. shell.json is kept as
+    # a plain mutable file instead; seed copy in home/dotfiles/caelestia/.
+  };
+
   # ── Personal apps: minimal viable set ────────────────────────────────────
   # (1Password is system-level in configuration.nix for polkit/ssh-agent.)
   home.packages = with pkgs; [
@@ -60,8 +93,9 @@ in
   xdg.configFile."fish".source = live "home/dotfiles/fish";
 
   # Store-managed (edit in repo, then rebuild):
-  xdg.configFile."waybar".source = ./dotfiles/waybar;
   xdg.configFile."kitty".source = ./dotfiles/kitty;
+  # (waybar link removed with the caelestia migration; home/dotfiles/waybar
+  # kept in the repo for reference/rollback)
 
   # ── SSH via 1Password agent ──────────────────────────────────────────────
   programs.ssh = {

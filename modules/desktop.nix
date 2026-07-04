@@ -1,5 +1,5 @@
 # Hyprland + the minimal set of desktop daemons:
-# waybar (bar), swaync (notifications), hyprpaper (wallpaper),
+# caelestia shell (bar/launcher/notifications/OSD/wallpaper — see home/z.nix),
 # hyprlock/hypridle (lock + idle). Nothing else.
 { config, pkgs, ... }:
 
@@ -28,10 +28,6 @@
 
   environment.systemPackages = with pkgs; [
     kitty
-    waybar
-    swaynotificationcenter
-    hyprpaper
-    rofi # rofi-wayland was merged into rofi in 25.11
     pavucontrol
     pamixer
     playerctl

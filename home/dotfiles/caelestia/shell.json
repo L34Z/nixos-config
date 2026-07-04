@@ -1,0 +1,26 @@
+{
+    "appearance": {
+        "transparency": {
+            "enabled": false
+        }
+    },
+    "bar": {
+        "persistent": true,
+        "scrollActions": {
+            "brightness": false
+        },
+        "status": {
+            "showBattery": false
+        }
+    },
+    "launcher": {
+        "enabled": true,
+        "showOnHover": false
+    },
+    "paths": {
+        "wallpaperDir": "~/Pictures"
+    },
+    "sidebar": {
+        "enabled": true
+    }
+}

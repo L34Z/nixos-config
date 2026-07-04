@@ -55,6 +55,10 @@
     useGlobalPkgs = true;
     useUserPackages = true;
     users.z = import ../../home/z.nix;
+    # home/z.nix needs `inputs` to patch the caelestia-shell package
+    extraSpecialArgs = { inherit inputs; };
+    # programs.caelestia.* options (used in home/z.nix)
+    sharedModules = [ inputs.caelestia-shell.homeManagerModules.default ];
     # if a real file is in the way of a managed one, back it up instead
     # of failing the whole activation
     backupFileExtension = "hm-bak";
