@@ -205,3 +205,39 @@ run `virt-viewer` alongside LG — they fight over the one Spice server.
   libvirt hook in `modules/vfio.nix`; it resets on VM shutdown.
 - Consciously skipped: hugepages (would reserve 24 of 31 GiB even with the
   VM off). Revisit with 1G pages if chasing the last few percent.
+
+## Host/VM GPU sharing (2026-07-12)
+
+The 3080's GPU function is no longer statically bound to vfio-pci. At boot
+the host's nvidia driver owns it (`modules/nvidia-hybrid.nix`) so Steam can
+render on it via PRIME offload (`gamemoderun nvidia-offload %command%`); the
+desktop itself stays on the iGPU. The card's AUDIO function (`01:00.1`,
+`10de:1aef`) stays statically vfio-bound — the host never uses it and
+pipewire would otherwise hold it open.
+
+Two root-owned oneshots do the switching (`nvidia-hybrid.nix`; z may start
+them passwordless via a scoped polkit rule):
+
+- `gpu-to-vfio.service` — unloads `nvidia_uvm/nvidia_drm/nvidia_modeset/
+  nvidia`, binds `01:00.0` to vfio-pci via `driver_override`. Fails loudly if
+  something on the host still holds the card (`fuser` dump in the journal) —
+  usually a game still running, or a chromium/electron app that enumerated
+  the GPU. Close it, retry.
+- `gpu-to-host.service` — the reverse. Both also re-assert the audio-on-vfio
+  invariant (libvirt's managed reattach can bounce it to snd_hda_intel).
+
+Both 3080 consumers go through them automatically:
+- **win11**: the `gpu-rebind` libvirt hook calls gpu-to-vfio on prepare
+  (a failure aborts the VM start with the journal in the error) and
+  gpu-to-host on release.
+- **comfyui-vm**: the runner (flake.nix) detaches on start and returns the
+  card via its exit trap.
+
+Native gaming and either VM are mutually exclusive at runtime, by definition.
+
+Guardrails that make the nvidia unload reliable (both in `nvidia-hybrid.nix`):
+- udev assigns the 3080's DRM card to seat `seat-vfio`, so niri (seat0) never
+  opens it despite the live DP cable to the G7's 2nd input. Offload still
+  works — it uses the render node, which isn't seat-tagged.
+- `nvidia-drm` loads with `fbdev=0` (modprobe.d, mkForce over the nixpkgs
+  default) so no framebuffer console can pin `nvidia_drm`.

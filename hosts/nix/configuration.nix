@@ -7,7 +7,8 @@
     ../../modules/desktop.nix
     ../../modules/greeter.nix # greetd + tuigreet session picker
     ../../modules/niri.nix # niri compositor (DMS session)
-    ../../modules/vfio.nix # 3080 passthrough + libvirt + Looking Glass (replaced nvidia.nix)
+    ../../modules/vfio.nix # win11 VM stack: libvirt + Looking Glass + CPU isolation
+    ../../modules/nvidia-hybrid.nix # 3080 on the host (PRIME offload) ⇄ vfio for win11
     ../../modules/comfyui-vm.nix # host plumbing for the ComfyUI sandbox VM (guest: comfyui-guest.nix)
     ../../modules/steam.nix # steam + gamemode; games live on /storage/games
   ];
@@ -144,6 +145,7 @@
     wl-clipboard
     nix-search-cli
     ntfs3g
+    pciutils # lspci — handy for checking which driver holds the 3080
   ];
 
   fonts.packages = with pkgs; [

@@ -15,13 +15,13 @@
     SUBSYSTEM=="vfio", OWNER="z"
   '';
 
-  # …but udev rules only run on device EVENTS, and the group node is created
-  # once at boot: a switch reloads rules without replaying events, so on the
-  # boot where this module first lands the node stays root-owned no matter
-  # how often you switch (bitten by this for real). Activation runs as root
-  # at boot AND on every switch — chown directly so switches converge.
-  # Harmless no-ops when the node doesn't exist yet or win11 has it (same
-  # owner either way).
+  # …and since the hybrid setup (2026-07-12, nvidia-hybrid.nix) the group
+  # node is created on demand — when gpu-to-vfio flips the card over — so the
+  # rule above actually fires per detach and does the real work. This
+  # activation chown is the backstop it used to be the fix for: with the old
+  # static boot binding, the node existed before udev rules landed and a
+  # switch never replayed the event (bitten by this for real). Harmless no-op
+  # when the node doesn't exist or is already z-owned.
   system.activationScripts.vfio-owner = ''
     chown z /dev/vfio/* 2>/dev/null || true
   '';
@@ -31,11 +31,11 @@
   # boot-time ownership was right, so this hook is normally redundant. It's
   # the backstop for the one bad case: win11 started while the node was
   # root-owned, whose "original owner" libvirt then faithfully restores.
-  # Hooks run as root; merges with the `isolate` hook in vfio.nix (each
-  # becomes its own script under qemu.d/). NB: libvirtd-config.service is
-  # what symlinks hooks into /var/lib/libvirt/hooks/qemu.d — it's an
-  # inactive oneshot a switch does NOT re-run, so a new/changed hook takes
-  # effect at next boot (or `systemctl restart libvirtd-config libvirtd`).
+  # Hooks run as root; merges with the `isolate`/`gpu-rebind` hooks (each
+  # becomes its own script under qemu.d/). libvirtd-config.service is what
+  # symlinks hooks into /var/lib/libvirt/hooks/qemu.d; since 2026-07-12 the
+  # hook scripts are in its restartTriggers (vfio.nix), so a switch applies
+  # new/changed hooks without a reboot.
   virtualisation.libvirtd.hooks.qemu.vfio-owner = pkgs.writeShellScript "qemu-hook-vfio-owner" ''
     [ "$1" = "win11" ] && [ "$2" = "release" ] || exit 0
     chown z /dev/vfio/* 2>/dev/null || true

@@ -3,6 +3,12 @@
 # (see home/z.nix), so games install there without any Steam UI setup.
 # /storage is unlocked via crypttab with nofail — if the drive is ever
 # absent, Steam just won't start; boot is unaffected.
+#
+# GPU: the desktop runs on the iGPU; games should render on the 3080 via
+# PRIME offload (modules/nvidia-hybrid.nix). Per-game launch options:
+#   gamemoderun nvidia-offload %command%
+# Without nvidia-offload a game renders on the iGPU — fine for 2D/indie,
+# wrong for anything heavy. Not usable while the win11 VM holds the card.
 { pkgs, ... }:
 
 {

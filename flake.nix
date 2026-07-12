@@ -94,6 +94,8 @@
             * Models go in /data/ComfyUI/models/... — download in the console
               (aria2c -x8 <url>), then load your workflow in the UI.
             * Refuses to start while win11 is running: same GPU.
+            * Detaches the 3080 from the host's nvidia driver on start and
+              returns it on exit (gpu-to-vfio/gpu-to-host — nvidia-hybrid.nix).
 
           Config: modules/comfyui-guest.nix (guest), modules/comfyui-vm.nix (host),
           runner in flake.nix (packages.comfyui-vm).
@@ -108,14 +110,47 @@
             exit 1
           fi
 
+          # One trap for all cleanup: the scratch dir (created below) and —
+          # when we detached it — returning the 3080 to the host's nvidia
+          # driver on the way out.
+          gpu_detached=0
+          d=""
+          cleanup() {
+            cd /
+            if [ -n "$d" ]; then rm -rf "$d"; fi
+            if [ "$gpu_detached" = 1 ]; then
+              systemctl start gpu-to-host.service || true
+            fi
+          }
+          trap cleanup EXIT
+
           if [ "''${COMFYUI_VM_NO_GPU:-}" != 1 ]; then
+            # Hybrid GPU (modules/nvidia-hybrid.nix): the 3080 belongs to the
+            # host's nvidia driver until a VM claims it. Detach it — a
+            # root-owned oneshot, passwordless for z via the polkit rule in
+            # that module. Fails while something still renders on the card
+            # (a game, an electron app that enumerated it); the journal
+            # names the culprit.
+            if ! systemctl start gpu-to-vfio.service; then
+              echo "comfyui-vm: could not detach the 3080 from the host:" >&2
+              journalctl -u gpu-to-vfio.service -n 10 --no-pager >&2 || true
+              exit 1
+            fi
+            gpu_detached=1
+
             # Derive the vfio group from sysfs instead of hardcoding 17.
             group=$(basename "$(readlink /sys/bus/pci/devices/0000:01:00.0/iommu_group)")
             dev=/dev/vfio/$group
+            # The node appears when the group binds vfio-pci (just happened)
+            # and udev chowns it to z (comfyui-vm.nix rule) a beat later —
+            # wait out the race instead of failing on it.
+            for _ in $(seq 30); do
+              if [ -w "$dev" ]; then break; fi
+              sleep 0.1
+            done
             if [ ! -w "$dev" ]; then
-              echo "comfyui-vm: no write access to $dev." >&2
-              echo "  'nh os switch' chowns it to z at activation; on an older" >&2
-              echo "  generation: sudo chown z $dev" >&2
+              echo "comfyui-vm: $dev never became z-writable — check the" >&2
+              echo "  SUBSYSTEM==\"vfio\" udev rule (modules/comfyui-vm.nix): ls -l $dev" >&2
               exit 1
             fi
             # VFIO pins all guest RAM; fail early with a hint instead of a
@@ -150,9 +185,8 @@
           fi
 
           # Same scratch hygiene as dispvm: qemu control sockets etc. on
-          # tmpfs, gone with the VM.
+          # tmpfs, gone with the VM. (Removed by the cleanup trap above.)
           d=$(mktemp -d -p "''${XDG_RUNTIME_DIR:-/tmp}" comfyui-vm.XXXXXX)
-          trap 'cd /; rm -rf "$d"' EXIT
           export TMPDIR="$d"
           cd "$d"
           echo "comfyui-vm: UI will be at http://localhost:8188 (first boot installs for a while)"

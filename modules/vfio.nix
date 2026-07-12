@@ -1,5 +1,8 @@
 # GPU passthrough: RTX 3080 -> Windows VM, host displays on the iGPU.
-# (Replaces nvidia.nix — nothing on the host uses the 3080 anymore.)
+# Since 2026-07-12 the 3080 is SHARED with the host (nvidia driver + PRIME
+# offload for Steam) and only bound to vfio-pci while win11 runs — driver
+# config and the rebind hook live in modules/nvidia-hybrid.nix. This module
+# owns the rest of the VM stack: libvirt, Looking Glass, CPU isolation.
 #
 # PCI IDs captured 2026-07-03 from `lspci -nn`:
 #   01:00.0 GPU   10de:2216  (GA102 / RTX 3080 LHR)
@@ -9,22 +12,29 @@
 { config, lib, pkgs, ... }:
 
 {
-  # ── IOMMU + early vfio-pci binding ──────────────────────────────────────
-  # vfio-pci must claim the 3080 before any graphics driver can; the ids=
-  # param plus the initrd modules guarantee that. intel_iommu is already
-  # default-on for this kernel, but explicit keeps the requirement visible.
+  # ── IOMMU + early vfio-pci binding (AUDIO function only) ────────────────
+  # Since 2026-07-12 the ids= list holds just 10de:1aef (the 3080's HDA):
+  # the host never uses that audio device, pipewire would otherwise adopt and
+  # hold it, and keeping it permanently on vfio-pci means the GPU function is
+  # the only thing the gpu-to-vfio/gpu-to-host services have to move.
+  # The GPU function (10de:2216) binds nvidia at boot — nvidia-hybrid.nix.
+  # intel_iommu is already default-on for this kernel, but explicit keeps the
+  # requirement visible.
   boot.kernelParams = [
     "intel_iommu=on"
     "iommu=pt"
-    "vfio-pci.ids=10de:2216,10de:1aef"
+    "vfio-pci.ids=10de:1aef"
   ];
-  # i915 loads in the initrd too (early KMS): the iGPU is the host's only
+  # i915 loads in the initrd too (early KMS): the iGPU is the host's primary
   # display, and leaving it to udev coldplug races the xe driver — xe can
   # probe device 4680 first, decline it, and i915 never loads at all
   # (hit on 2026-07-03: Hyprland started with zero outputs, black screen).
+  # vfio_pci in the initrd so it claims the audio function before udev
+  # coldplug can hand it to snd_hda_intel.
   boot.initrd.kernelModules = [ "i915" "vfio_pci" "vfio" "vfio_iommu_type1" ];
-  # Belt and braces: nothing on the host should ever touch the card.
-  boot.blacklistedKernelModules = [ "nouveau" "nvidia" ];
+  # nouveau would fight the proprietary driver for the card; nvidia itself is
+  # no longer blacklisted (nvidia-hybrid.nix loads it on purpose).
+  boot.blacklistedKernelModules = [ "nouveau" ];
 
   # ── Virtualization stack ────────────────────────────────────────────────
   virtualisation.libvirtd = {
@@ -71,12 +81,17 @@
   # A libvirtd restart does NOT kill running domains (qemu lives in its own
   # scope; libvirtd reconnects on start) — they simply adopt the new qemu.conf
   # on their next start, which is exactly when it matters.
+  # Hook scripts are in the triggers too (2026-07-12): libvirtd-config is also
+  # what symlinks hooks.qemu.* into /var/lib/libvirt/hooks/qemu.d, so a new or
+  # changed hook (e.g. gpu-rebind in nvidia-hybrid.nix) has the same
+  # never-applies-on-switch problem qemu.conf had.
   systemd.services.libvirtd-config.restartTriggers = [
     config.virtualisation.libvirtd.qemu.verbatimConfig
-  ];
+  ] ++ lib.attrValues config.virtualisation.libvirtd.hooks.qemu;
   systemd.services.libvirtd = {
     restartIfChanged = lib.mkForce true; # module pins this false; we want switch to apply qemu.conf
-    restartTriggers = [ config.virtualisation.libvirtd.qemu.verbatimConfig ];
+    restartTriggers = [ config.virtualisation.libvirtd.qemu.verbatimConfig ]
+      ++ lib.attrValues config.virtualisation.libvirtd.hooks.qemu;
   };
   # ── Don't let logind delete the VM's shmem on logout ─────────────────────
   # logind's default RemoveIPC=yes wipes ALL POSIX shm owned by a user when
