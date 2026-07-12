@@ -29,6 +29,12 @@
   # ── Virtualization stack ────────────────────────────────────────────────
   virtualisation.libvirtd = {
     enable = true;
+    # The NixOS default onShutdown="suspend" (managedsave) is impossible for
+    # win11 — VFIO hostdevs + ivshmem + invtsc make it non-migratable — so a
+    # host shutdown with the VM up failed the save, SIGKILLed qemu (dirty
+    # Windows shutdown), and left the guest flagged "was running" for
+    # libvirt-guests to cold-start on the next boot. ACPI-shutdown it instead.
+    onShutdown = "shutdown";
     qemu = {
       swtpm.enable = true; # Windows 11 requires a TPM
       # UEFI (OVMF) firmware, incl. secure-boot variants, ships with QEMU by

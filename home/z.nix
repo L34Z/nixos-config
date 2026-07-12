@@ -28,6 +28,23 @@ in
     hyprcursor.enable = true;
   };
 
+  # ── Icon theme ───────────────────────────────────────────────────────────
+  # Without a full icon theme installed only `hicolor` exists, which has
+  # almost no named icons. blueman-applet then renders broken icons both for
+  # its tray icon and for every entry in its right-click device menu
+  # (audio-card, input-mouse, phone, bluetooth, blueman-*), and DMS's taskbar
+  # tray — which resolves the same StatusNotifierItem icon names against the
+  # XDG icon theme — shows the same breakage. Papirus has complete blueman
+  # coverage. Enabling the gtk module also writes ~/.config/gtk-{3,4}.0 so
+  # GTK apps and quickshell/DMS pick the theme up.
+  gtk = {
+    enable = true;
+    iconTheme = {
+      package = pkgs.papirus-icon-theme;
+      name = "Papirus-Dark";
+    };
+  };
+
   # Polkit auth agent — GUI privilege prompts (gparted, flatpak, etc.)
   # don't work in a bare Hyprland session without one. Starts with
   # graphical-session.target, which exists because of UWSM.
@@ -66,19 +83,41 @@ in
     # a plain mutable file instead; seed copy in home/dotfiles/caelestia/.
   };
 
+  # ── DankMaterialShell (niri session) ─────────────────────────────────────
+  # Installs the dms CLI + quickshell + deps (dgop, matugen, cava, khal).
+  # Runs as a systemd user unit (dms.service, satisfies the DMS system check).
+  # The unit binds to graphical-session.target, which the Hyprland session
+  # also activates — the ConditionEnvironment below keeps it niri-only: both
+  # compositors import XDG_CURRENT_DESKTOP into the systemd user environment
+  # before starting the target, so the condition fails under Hyprland and
+  # caelestia keeps the session to itself.
+  programs.dank-material-shell = {
+    enable = true;
+    systemd.enable = true;
+  };
+  systemd.user.services.dms.Unit.ConditionEnvironment = "XDG_CURRENT_DESKTOP=niri";
+
   # ── Personal apps: minimal viable set ────────────────────────────────────
   # (1Password is system-level in configuration.nix for polkit/ssh-agent.)
   home.packages = with pkgs; [
     firefox
+    inputs.self.packages.${pkgs.system}.dispvm # disposable Firefox VM (modules/dispvm-guest.nix)
+    inputs.self.packages.${pkgs.system}.comfyui-vm # ComfyUI sandbox VM on the 3080 (modules/comfyui-guest.nix)
     claude-code
     looking-glass-client # the Windows VM's screen, as a window (see modules/vfio.nix)
+    socat # the `comfy` fish function's console/monitor plumbing (aliases.fish)
     hyprpicker # screen colour picker; the nexus Colours page shells out to it
+    qbittorrent
+    mpv
+    qimgv # image/media viewer; plays video via mpv
+    # (mullvad-vpn comes from services.mullvad-vpn in configuration.nix —
+    # the app needs its system daemon, so home-manager alone can't provide it)
 
     # Deferred — uncomment as needed once the base system is solid:
     discord
     stremio-linux-shell
+    yt-dlp
     fastfetch
-    hyprpicker
     # anytype
     # notesnook
     # vscode
@@ -87,15 +126,39 @@ in
     # filezilla
   ];
 
+  # ── Steam data on the storage SSD ────────────────────────────────────────
+  # Steam itself is enabled system-side (modules/steam.nix). Its entire data
+  # dir — client files, shader cache, and installed games — is redirected to
+  # /storage/games/steam via this symlink, so the default install location
+  # is the 2TB drive with zero Steam UI configuration. The target dir is
+  # created/chowned by a tmpfiles rule in modules/steam.nix.
+  home.file.".local/share/Steam".source =
+    config.lib.file.mkOutOfStoreSymlink "/storage/games/steam";
+
   # ── Dotfiles ─────────────────────────────────────────────────────────────
   # Live-editable (symlink into the repo working tree):
   xdg.configFile."hypr".source = live "home/dotfiles/hypr";
   xdg.configFile."fish".source = live "home/dotfiles/fish";
-
-  # Store-managed (edit in repo, then rebuild):
-  xdg.configFile."kitty".source = ./dotfiles/kitty;
+  xdg.configFile."niri".source = live "home/dotfiles/niri";
+  # kitty must be writable too: DMS's theme worker (matugen) writes
+  # kitty/dank-theme.conf on every colour-mode switch and dies with EROFS
+  # if the dir is a store symlink.
+  xdg.configFile."kitty".source = live "home/dotfiles/kitty";
   # (waybar link removed with the caelestia migration; home/dotfiles/waybar
   # kept in the repo for reference/rollback)
+
+  # ── Disposable Firefox VM: launcher entry ────────────────────────────────
+  # Qubes-style amnesic browser — one throwaway QEMU VM per click, RAM-only,
+  # gone on close. VM defined in modules/dispvm-guest.nix, wrapper in
+  # flake.nix (packages.dispvm, also installed above so `dispvm` is on PATH).
+  xdg.desktopEntries.dispvm = {
+    name = "Disposable Firefox";
+    comment = "Amnesic private-browsing VM — RAM-only, leaves no trace";
+    exec = "${inputs.self.packages.${pkgs.system}.dispvm}/bin/dispvm";
+    icon = "firefox";
+    terminal = false;
+    categories = [ "Network" "WebBrowser" ];
+  };
 
   # ── SSH via 1Password agent ──────────────────────────────────────────────
   programs.ssh = {

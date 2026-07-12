@@ -14,7 +14,5 @@ source ~/.config/fish/aliases.fish
 zoxide init fish | source
 direnv hook fish | source
 
-# Start Hyprland (via uwsm, so systemd user services come up) on tty1 login
-if uwsm check may-start
-    exec uwsm start hyprland-uwsm.desktop
-end
+# (tty autostart removed: greetd/tuigreet on tty1 now launches the session —
+# Hyprland via uwsm or niri via niri-session; see modules/greeter.nix)
